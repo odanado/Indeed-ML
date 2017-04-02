@@ -61,7 +61,7 @@ def calc_valid_size(length, batch_size):
     return ret + batch_size - ret % batch_size
 
 
-def create_dataset(df, vocab, labels, seed=0):
+def create_dataset(df, vocab, labels, seed=0, split=True):
     data = []
     for i, row in df.iterrows():
         description = row.description
@@ -72,7 +72,10 @@ def create_dataset(df, vocab, labels, seed=0):
         data.append((xp.array(ids, dtype=xp.int32),
                      xp.array(encoded, xp.int32)))
 
-    test, train = datasets.split_dataset_random(
-        data, calc_valid_size(len(data), config.batch_size), seed)
+    if split:
+        test, train = datasets.split_dataset_random(
+            data, calc_valid_size(len(data), config.batch_size), seed)
 
-    return train, test
+        return train, test
+
+    return data
