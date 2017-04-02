@@ -5,8 +5,6 @@ import copy
 import os
 
 import chainer
-import chainer.links as L
-import chainer.functions as F
 import cupy as xp
 
 from chainer import config
@@ -35,7 +33,7 @@ class SequenceUpdater(training.StandardUpdater):
 
         X, y = zip(*next(train_iter))
 
-        loss = model(X, xp.array(y))
+        loss = model(X, y)
 
         optimizer.target.cleargrads()  # Clear the parameter gradients
         loss.backward()  # Backprop
@@ -65,10 +63,10 @@ class SequenceEvaluator(extensions.Evaluator):
             observation = {}
             with reporter_module.report_scope(observation):
                 X, y = zip(*batch)
-                eval_func(X, xp.array(y))
-                pred = F.argmax(target.y, axis=1)
+                eval_func(X, y)
+                pred = target.labels
                 for i in range(len(X)):
-                    results.append((y[i], X[i].tolist(), pred[i].data))
+                    results.append((y[i], X[i].tolist(), pred[i]))
 
             summary.add(observation)
 
@@ -77,9 +75,9 @@ class SequenceEvaluator(extensions.Evaluator):
         with open(fname, 'w') as f:
             for ret in results:
                 line = []
-                line.append(str(ret[0]))
+                line.append(' '.join(map(str, ret[0])))
                 line.append(' '.join(map(str, ret[1])))
-                line.append(str(ret[2]))
+                line.append(' '.join(map(str, ret[2])))
                 f.write('{}\n'.format('\t'.join(line)))
         self.epoch += 1
         return summary.compute_mean()
@@ -101,18 +99,24 @@ def load_config(fname):
             k, v = line.split()
             if v.isdigit():
                 v = int(v)
+            else:
+                try:
+                    v = float(v)
+                except:
+                    pass
+
             setattr(config, k, v)
 
 
 def encode_tag(tags, labels):
+    ret = [0] * len(labels)
     if isinstance(tags, float):
-        return 0
+        return ret
 
-    encoded = 0
     for tag in tags.split(' '):
-        encoded += 2 ** labels.index(tag)
+        ret[labels.index(tag)] = 1
 
-    return encoded
+    return ret
 
 
 def decode_tag(encoded, labels):
@@ -143,7 +147,7 @@ def create_dataset(df, vocab, labels):
         ids = vocab.sentence_to_ids(description)
         encoded = encode_tag(tags, labels)
 
-        data.append((xp.array(ids, dtype=xp.int32), xp.int32(encoded)))
+        data.append((xp.array(ids, dtype=xp.int32), xp.array(encoded, xp.int32)))
 
     test, train = datasets.split_dataset_random(
         data, calc_valid_size(len(data), config.batch_size), 0)
@@ -152,13 +156,21 @@ def create_dataset(df, vocab, labels):
 
 
 def main(args):
-    if os.path.exists(args.model):
-        raise ValueError('{} directory already exists'.format(args.model))
+    config_file = args.config
+    if args.resume:
+        com = os.path.commonpath([args.resume, args.model])
+        if len(com) == 0:
+            raise ValueError('{} and {} don\'t have commonpath'.format(args.resume, args.model))
+        config_file = os.path.join(args.model, 'config.txt')
+    else:
+        if os.path.exists(args.model):
+            raise ValueError('{} directory already exists'.format(args.model))
+        os.makedirs(args.model)
 
-    os.makedirs(args.model)
-    load_config(args.config)
+    load_config(config_file)
     print('show config')
     config.show()
+
     save_config('{}/config.txt'.format(args.model))
     for k, v in args._get_kwargs():
         setattr(config, k, v)
@@ -175,9 +187,7 @@ def main(args):
     labels = load_labels()
 
     train, test = create_dataset(train_df, vocab, labels)
-    train = train
-    model = L.Classifier(
-        Encoder(len(vocab), config.unit_size, 2 ** len(labels)))
+    model = Encoder(len(vocab), config.unit_size, len(labels), config.dropout_ratio)
 
     if config.gpu >= 0:
         chainer.cuda.get_device(config.gpu).use()
@@ -185,7 +195,7 @@ def main(args):
 
     optimizer = chainer.optimizers.Adam()
     optimizer.setup(model)
-    optimizer.add_hook(chainer.optimizer.GradientClipping(5))
+    optimizer.add_hook(chainer.optimizer.GradientClipping(config.grad_clip))
 
     train_iter = chainer.iterators.SerialIterator(train, config.batch_size)
     test_iter = chainer.iterators.SerialIterator(test, config.batch_size,
@@ -201,14 +211,18 @@ def main(args):
 
     trainer.extend(extensions.PrintReport(
         ['epoch', 'main/loss', 'validation/main/loss',
-         'main/accuracy', 'validation/main/accuracy', 'elapsed_time']))
+         'main/f1', 'validation/main/f1', 'elapsed_time']))
     trainer.extend(extensions.ProgressBar(update_interval=1))
+
+    if args.resume:
+        chainer.serializers.load_npz(args.resume, trainer)
     trainer.run()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('config')
     parser.add_argument('model')
+    parser.add_argument('--config', default='')
+    parser.add_argument('--resume', default='')
     args = parser.parse_args()
 
     main(args)
