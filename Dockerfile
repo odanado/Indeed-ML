@@ -4,7 +4,8 @@ RUN apt update -y && \
     apt upgrade -y
 RUN apt install -y --no-install-recommends \
     python3-dev \
-    python3-pip && \
+    python3-pip \
+    git && \
     rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
 RUN update-alternatives --install /usr/local/bin/python python /usr/bin/python3 10 && \
@@ -33,6 +34,14 @@ ENV PATH /home/user/.local/bin:$PATH
 RUN jupyter nbextension enable --py widgetsnbextension && \
     jupyter nbextension install https://github.com/kenkoooo/jupyter-autopep8/archive/master.zip --user && \
     jupyter nbextension enable jupyter-autopep8-master/jupyter-autopep8
+
+RUN cd /home/$NB_USER && \
+    git clone --recursive https://github.com/dmlc/xgboost && \
+    cd xgboost && \
+    make -j4 && \
+    cd python-package; python setup.py develop --user
+
+RUN pip install --user hyperopt
 
 WORKDIR /src
 
