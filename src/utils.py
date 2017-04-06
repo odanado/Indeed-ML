@@ -1,8 +1,26 @@
+import numpy as np
 import cupy as xp
 from chainer import config
 from chainer import datasets
 
 from vocab import Vocabulary
+
+
+def div(x, y):
+    if y == 0:
+        return 0
+    return x / y
+
+
+def eval_f1_score(y_true, y_pred):
+    tp = np.sum(np.logical_and(y_true, y_pred))
+    fp = np.sum(np.logical_and(np.logical_not(y_true), y_pred))
+    fn = np.sum(np.logical_and(y_true, np.logical_not(y_pred)))
+
+    p = div(tp, tp + fp)
+    r = div(tp, tp + fn)
+    s = div(2 * p * r, p + r)
+    return s
 
 
 def create_vocab(df):
