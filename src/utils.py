@@ -35,7 +35,7 @@ def encode_tag(tags, labels):
     if isinstance(tags, float):
         return ret
 
-    for tag in tags.split(' '):
+    for tag in tags.split():
         ret[labels.index(tag)] = 1
 
     return ret
